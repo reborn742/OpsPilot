@@ -1,0 +1,37 @@
+@inherits LayoutComponentBase
+@inject IWebHostEnvironment Environment
+
+<div class="app-shell">
+    <NavMenu />
+
+    <div class="main-panel">
+        <header class="workspace-topbar">
+            <div>
+                <div class="topbar-eyebrow">IT OPERATIONS PLATFORM</div>
+                <div class="topbar-heading">Workspace</div>
+            </div>
+
+            <div class="topbar-right">
+                <span class="environment-label">
+                    <span class="environment-dot"></span>
+                    @Environment.EnvironmentName.ToUpperInvariant()
+                </span>
+            </div>
+        </header>
+
+        <main class="workspace-content">
+            @Body
+        </main>
+
+        <footer class="workspace-footer">
+            <span>OpsPilot · IT Operations Management</span>
+            <span>Built with .NET &amp; Blazor</span>
+        </footer>
+    </div>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unexpected error occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">×</span>
+</div>

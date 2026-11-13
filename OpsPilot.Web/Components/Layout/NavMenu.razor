@@ -1,0 +1,80 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IWebHostEnvironment Environment
+
+<aside class="sidebar">
+    <a class="brand" href="/">
+        <span class="brand-mark">O</span>
+        <span class="brand-copy">
+            <strong>OpsPilot</strong>
+            <small>OPERATIONS CENTER</small>
+        </span>
+    </a>
+
+    <nav class="sidebar-navigation">
+        <div class="sidebar-section-label">WORKSPACE</div>
+
+        <NavLink class="sidebar-link" href="/" Match="NavLinkMatch.All">
+            <span class="sidebar-icon">▦</span>
+            <span>Overview</span>
+        </NavLink>
+
+        <div class="sidebar-section-label">OPERATIONS</div>
+
+        <NavLink class="sidebar-link" href="/assets">
+            <span class="sidebar-icon">▤</span>
+            <span>Asset management</span>
+        </NavLink>
+
+        <NavLink class="sidebar-link" href="/incidents">
+            <span class="sidebar-icon">◈</span>
+            <span>Incidents</span>
+        </NavLink>
+
+        <AuthorizeView Roles="SuperAdmin,ITManager">
+            <Authorized>
+                <NavLink class="sidebar-link" href="/technicians">
+                    <span class="sidebar-icon">♙</span>
+                    <span>Technicians</span>
+                </NavLink>
+            </Authorized>
+        </AuthorizeView>
+
+        <NavLink class="sidebar-link" href="/maintenance">
+            <span class="sidebar-icon">◷</span>
+            <span>Maintenance</span>
+        </NavLink>
+
+        <div class="sidebar-section-label">INSIGHTS</div>
+
+        <div class="sidebar-link sidebar-link-disabled">
+            <span class="sidebar-icon">▥</span>
+            <span>Reports</span>
+            <span class="sidebar-soon">PLANNED</span>
+        </div>
+    </nav>
+
+    <div class="sidebar-bottom">
+        <AuthorizeView>
+            <Authorized Context="auth">
+                <div class="account-panel">
+                    <div class="account-avatar">@(auth.User.Identity?.Name?.Substring(0, 1).ToUpperInvariant() ?? "U")</div>
+                    <div class="account-details">
+                        <strong>@auth.User.Identity?.Name</strong>
+                        <small>Signed in</small>
+                    </div>
+                </div>
+                <a class="signout-link" href="/Account/Logout">
+                    <span>↪</span> Sign out
+                </a>
+            </Authorized>
+
+            <NotAuthorized>
+                <a class="signout-link" href="/Account/Login">
+                    Sign in
+                </a>
+            </NotAuthorized>
+        </AuthorizeView>
+
+        <div class="sidebar-version">OPSPILOT · @Environment.EnvironmentName.ToUpperInvariant()</div>
+    </div>
+</aside>

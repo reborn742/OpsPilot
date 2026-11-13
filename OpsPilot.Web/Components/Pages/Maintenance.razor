@@ -1,0 +1,287 @@
+@page "/maintenance"
+@using Microsoft.AspNetCore.Authorization
+@using OpsPilot.Application.DTOs.Assets
+@using OpsPilot.Application.DTOs.Maintenance
+@using OpsPilot.Application.Services.Assets
+@using OpsPilot.Application.Services.Maintenance
+@using OpsPilot.Domain.Entities
+@attribute [Authorize]
+@inject IMaintenanceService MaintenanceService
+@inject IAssetService AssetService
+
+<PageTitle>Maintenance | OpsPilot</PageTitle>
+
+<div class="assets-page ops-page">
+    <div class="page-heading ops-page-heading">
+        <div>
+            <h1>Maintenance Management</h1>
+            <p>Schedule and track asset maintenance activities.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="ops-alert ops-alert-success" role="status">@message</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="ops-alert ops-alert-error" role="alert">@errorMessage</div>
+    }
+
+    <section class="ops-metrics ops-metrics-three">
+    <article class="ops-metric">
+        <span>Scheduled</span>
+        <strong>@records.Count(x => x.Status == MaintenanceStatus.Scheduled)</strong>
+        <small>Awaiting maintenance</small>
+    </article>
+    <article class="ops-metric">
+        <span>In progress</span>
+        <strong>@records.Count(x => x.Status == MaintenanceStatus.InProgress)</strong>
+        <small>Currently being worked on</small>
+    </article>
+    <article class="ops-metric">
+        <span>Completed</span>
+        <strong>@records.Count(x => x.Status == MaintenanceStatus.Completed)</strong>
+        <small>Work completed</small>
+    </article>
+</section>
+
+<section class="inventory-panel ops-panel">
+        <h2>Schedule maintenance</h2>
+
+        <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
+            <div class="asset-filters ops-toolbar">
+                <label>
+                    Asset
+                    <select @bind="selectedAssetId">
+                        <option value="@Guid.Empty">Select an asset</option>
+                        @foreach (var asset in assets)
+                        {
+                            <option value="@asset.Id">
+                                @asset.AssetTag — @asset.Name
+                            </option>
+                        }
+                    </select>
+                </label>
+
+                <label>
+                    Maintenance title
+                    <input @bind="title" maxlength="200"
+                           placeholder="e.g. Quarterly inspection" />
+                </label>
+
+                <label>
+                    Scheduled date (UTC)
+                    <input type="date" @bind="scheduledDate" />
+                </label>
+
+                <label>
+                    Description
+                    <textarea @bind="description" maxlength="2000"
+                              placeholder="Maintenance details"></textarea>
+                </label>
+
+                <button type="submit" disabled="@isBusy">
+                    Schedule maintenance
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <section class="ops-metrics ops-metrics-three">
+    <article class="ops-metric">
+        <span>Scheduled</span>
+        <strong>@records.Count(x => x.Status == MaintenanceStatus.Scheduled)</strong>
+        <small>Awaiting maintenance</small>
+    </article>
+    <article class="ops-metric">
+        <span>In progress</span>
+        <strong>@records.Count(x => x.Status == MaintenanceStatus.InProgress)</strong>
+        <small>Currently being worked on</small>
+    </article>
+    <article class="ops-metric">
+        <span>Completed</span>
+        <strong>@records.Count(x => x.Status == MaintenanceStatus.Completed)</strong>
+        <small>Work completed</small>
+    </article>
+</section>
+
+<section class="inventory-panel ops-panel">
+        <h2>Maintenance records</h2>
+
+        <label>
+            Completion notes (used when completing a record)
+            <textarea @bind="completionNotes" maxlength="2000"
+                      placeholder="Describe the work performed"></textarea>
+        </label>
+
+        @if (records.Count == 0)
+        {
+            <p>No maintenance records yet.</p>
+        }
+        else
+        {
+            <div class="asset-table-wrapper ops-table-wrap">
+                <table class="asset-table ops-table">
+                    <thead>
+                        <tr>
+                            <th>Asset</th>
+                            <th>Maintenance</th>
+                            <th>Scheduled (UTC)</th>
+                            <th>Status</th>
+                            <th>Completion notes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var record in records)
+                        {
+                            <tr @key="record.Id">
+                                <td>
+                                    <strong>@record.AssetTag</strong>
+                                    <div>@record.AssetName</div>
+                                </td>
+                                <td>
+                                    <strong>@record.Title</strong>
+                                    <div>@record.Description</div>
+                                </td>
+                                <td>@record.ScheduledAtUtc.ToString("yyyy-MM-dd")</td>
+                                <td>@record.Status</td>
+                                <td>@record.CompletionNotes</td>
+                                <td>
+                                    @if (record.Status == MaintenanceStatus.Scheduled)
+                                    {
+                                        <button type="button"
+                                                disabled="@isBusy"
+                                                @onclick="() => StartAsync(record.Id)">
+                                            Start
+                                        </button>
+                                        <button type="button"
+                                                disabled="@isBusy"
+                                                @onclick="() => CancelAsync(record.Id)">
+                                            Cancel
+                                        </button>
+                                    }
+                                    else if (record.Status == MaintenanceStatus.InProgress)
+                                    {
+                                        <button type="button"
+                                                disabled="@isBusy"
+                                                @onclick="() => CompleteAsync(record.Id)">
+                                            Complete
+                                        </button>
+                                        <button type="button"
+                                                disabled="@isBusy"
+                                                @onclick="() => CancelAsync(record.Id)">
+                                            Cancel
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<AssetDto> assets = [];
+    private List<MaintenanceDto> records = [];
+
+    private Guid selectedAssetId;
+    private string title = string.Empty;
+    private string? description;
+    private string? completionNotes;
+    private DateOnly scheduledDate = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+
+    private bool isBusy;
+    private string? message;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var assetResult = await AssetService.SearchAsync(
+                new AssetSearchCriteria(PageSize: 100));
+
+            assets = assetResult.Items;
+            records = await MaintenanceService.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load maintenance data: {ex.Message}";
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        await ExecuteAsync(async () =>
+        {
+            if (selectedAssetId == Guid.Empty)
+                throw new InvalidOperationException("Select an asset.");
+
+            if (string.IsNullOrWhiteSpace(title))
+                throw new InvalidOperationException("Enter a maintenance title.");
+
+            var scheduledUtc = new DateTimeOffset(
+                scheduledDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+
+            await MaintenanceService.CreateAsync(
+                new CreateMaintenanceRequest(
+                    selectedAssetId,
+                    title,
+                    scheduledUtc,
+                    description));
+
+            title = string.Empty;
+            description = null;
+            message = "Maintenance scheduled successfully.";
+        });
+    }
+
+    private Task StartAsync(Guid id) =>
+        ExecuteAsync(async () =>
+        {
+            await MaintenanceService.StartAsync(id);
+            message = "Maintenance started.";
+        });
+
+    private Task CompleteAsync(Guid id) =>
+        ExecuteAsync(async () =>
+        {
+            await MaintenanceService.CompleteAsync(id, completionNotes);
+            completionNotes = null;
+            message = "Maintenance completed.";
+        });
+
+    private Task CancelAsync(Guid id) =>
+        ExecuteAsync(async () =>
+        {
+            await MaintenanceService.CancelAsync(id);
+            message = "Maintenance cancelled.";
+        });
+
+    private async Task ExecuteAsync(Func<Task> operation)
+    {
+        isBusy = true;
+        message = null;
+        errorMessage = null;
+
+        try
+        {
+            await operation();
+            records = await MaintenanceService.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+}

@@ -1,0 +1,38 @@
+﻿## .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+TestResults/
+publish/
+artifacts/
+
+## Secrets and local configuration
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+secrets.json
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
+*.cer
+
+## Local databases and backups
+*.db
+*.sqlite
+*.sqlite3
+*.mdf
+*.ldf
+*.bak
+
+## OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

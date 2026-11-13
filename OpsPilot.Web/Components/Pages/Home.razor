@@ -1,0 +1,387 @@
+@page "/"
+@attribute [Authorize]
+
+@using OpsPilot.Application.Common
+@using OpsPilot.Application.DTOs.Incidents
+@using OpsPilot.Application.DTOs.Maintenance
+@using OpsPilot.Application.DTOs.Technicians
+@using OpsPilot.Application.DTOs.Dashboard
+@using OpsPilot.Application.Interfaces
+@using OpsPilot.Application.Services.Incidents
+@using OpsPilot.Application.Services.Maintenance
+@using OpsPilot.Domain.Enums
+@using OpsPilot.Domain.Entities
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IIncidentService IncidentService
+@inject ITechnicianDirectory TechnicianDirectory
+@inject IMaintenanceService MaintenanceService
+
+<PageTitle>Overview | OpsPilot</PageTitle>
+
+@if (!_loaded)
+{
+    <div class="dashboard-loading">Loading operational overview...</div>
+}
+else
+{
+    <section class="dashboard-header">
+        <div>
+            <div class="page-eyebrow">WORKSPACE / OVERVIEW</div>
+            <h1>Operations overview</h1>
+            <p class="page-description">
+                A unified view of incident response, technician resources and preventive maintenance.
+            </p>
+        </div>
+
+        <div class="live-indicator">
+            <span class="live-dot"></span>
+            Database connected
+        </div>
+    </section>
+
+    <section class="overview-metrics" aria-label="Operational metrics">
+        <article class="overview-metric">
+            <div class="overview-metric-label">Total incidents</div>
+            <div class="overview-metric-value">@_totalIncidents.ToString("N0")</div>
+            <div class="overview-metric-note">All recorded incidents</div>
+        </article>
+
+        <article class="overview-metric">
+            <div class="overview-metric-label">Active incidents</div>
+            <div class="overview-metric-value">@_activeIncidents.ToString("N0")</div>
+            <div class="overview-metric-note">Awaiting resolution or closure</div>
+        </article>
+
+        <article class="overview-metric overview-metric-critical">
+            <div class="overview-metric-label">Critical incidents</div>
+            <div class="overview-metric-value">@_criticalIncidents.ToString("N0")</div>
+            <div class="overview-metric-note">Active, critical-priority cases</div>
+        </article>
+
+        <article class="overview-metric">
+            <div class="overview-metric-label">Scheduled maintenance</div>
+            <div class="overview-metric-value">@_scheduledMaintenance.ToString("N0")</div>
+            <div class="overview-metric-note">Awaiting maintenance work</div>
+        </article>
+    </section>
+
+    <section class="overview-grid">
+        <article class="overview-panel">
+            <div class="overview-panel-heading">
+                <div>
+                    <div class="overview-kicker">SERVICE MANAGEMENT</div>
+                    <h2>Incident workload</h2>
+                    <p>Current status across the latest @_incidentItems.Count records</p>
+                </div>
+                <a class="overview-link" href="/incidents">View incidents</a>
+            </div>
+
+            <div class="overview-status-list">
+                <div class="overview-status-row">
+                    <span><span class="status-dot status-open"></span>Open</span>
+                    <strong>@CountIncidents(IncidentStatus.Open)</strong>
+                </div>
+                <div class="overview-status-row">
+                    <span><span class="status-dot status-assigned"></span>Assigned</span>
+                    <strong>@CountIncidents(IncidentStatus.Assigned)</strong>
+                </div>
+                <div class="overview-status-row">
+                    <span><span class="status-dot status-progress"></span>In progress</span>
+                    <strong>@CountIncidents(IncidentStatus.InProgress)</strong>
+                </div>
+                <div class="overview-status-row">
+                    <span><span class="status-dot status-pending"></span>Pending</span>
+                    <strong>@CountIncidents(IncidentStatus.Pending)</strong>
+                </div>
+                <div class="overview-status-row">
+                    <span><span class="status-dot status-resolved"></span>Resolved</span>
+                    <strong>@CountIncidents(IncidentStatus.Resolved)</strong>
+                </div>
+                <div class="overview-status-row">
+                    <span><span class="status-dot status-closed"></span>Closed</span>
+                    <strong>@CountIncidents(IncidentStatus.Closed)</strong>
+                </div>
+            </div>
+
+            <div class="overview-panel-footer">
+                @if (_totalIncidents > _incidentItems.Count)
+                {
+                    <span>Status breakdown covers the latest 100 records.</span>
+                }
+                else
+                {
+                    <span>Status breakdown covers all recorded incidents.</span>
+                }
+            </div>
+        </article>
+
+        <article class="overview-panel">
+            <div class="overview-panel-heading">
+                <div>
+                    <div class="overview-kicker">PREVENTIVE OPERATIONS</div>
+                    <h2>Maintenance</h2>
+                    <p>Maintenance schedule and execution status</p>
+                </div>
+                <a class="overview-link" href="/maintenance">View schedule</a>
+            </div>
+
+            <div class="maintenance-summary">
+                <div>
+                    <span>In progress</span>
+                    <strong>@_inProgressMaintenance</strong>
+                </div>
+                <div>
+                    <span>Completed</span>
+                    <strong>@_completedMaintenance</strong>
+                </div>
+                <div>
+                    <span>Overdue</span>
+                    <strong class="@(_overdueMaintenance > 0 ? "critical-number" : "")">@_overdueMaintenance</strong>
+                </div>
+            </div>
+
+            <div class="overview-subheading">Upcoming and outstanding work</div>
+
+            @if (_activeMaintenanceRecords.Count == 0)
+            {
+                <div class="overview-empty">
+                    No scheduled or in-progress maintenance records.
+                </div>
+            }
+            else
+            {
+                <div class="overview-record-list">
+                    @foreach (var item in _activeMaintenanceRecords)
+                    {
+                        <div class="overview-record">
+                            <div class="overview-record-main">
+                                <strong>@item.Title</strong>
+                                <span>@item.AssetTag · @item.AssetName</span>
+                            </div>
+                            <div class="overview-record-meta">
+                                <span class="overview-date">@item.ScheduledAtUtc.ToLocalTime().ToString("dd MMM yyyy")</span>
+                                <span class="overview-pill @MaintenanceCss(item.Status)">
+                                    @MaintenanceLabel(item.Status)
+                                </span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </article>
+
+        <AuthorizeView Roles="SuperAdmin,ITManager">
+            <Authorized>
+                <article class="overview-panel overview-technicians">
+                    <div class="overview-panel-heading">
+                        <div>
+                            <div class="overview-kicker">RESOURCE DIRECTORY</div>
+                            <h2>Active technicians</h2>
+                            <p>@_technicians.Count active technician accounts</p>
+                        </div>
+                        <a class="overview-link" href="/technicians">Manage team</a>
+                    </div>
+
+                    @if (_technicians.Count == 0)
+                    {
+                        <div class="overview-empty">
+                            No active technicians are registered.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="technician-list">
+                            @foreach (var technician in _technicians.Take(6))
+                            {
+                                <div class="technician-row">
+                                    <div class="technician-avatar">
+                                        @Initials(technician.DisplayName)
+                                    </div>
+                                    <div class="technician-details">
+                                        <strong>@technician.DisplayName</strong>
+                                        <span>Active technician</span>
+                                    </div>
+                                    <span class="technician-active-dot" title="Active"></span>
+                                </div>
+                            }
+                        </div>
+
+                        @if (_technicians.Count > 6)
+                        {
+                            <div class="overview-panel-footer">
+                                Showing 6 of @_technicians.Count active technicians.
+                            </div>
+                        }
+                    }
+                </article>
+            </Authorized>
+        </AuthorizeView>
+
+        <article class="overview-panel overview-recent">
+            <div class="overview-panel-heading">
+                <div>
+                    <div class="overview-kicker">LATEST ACTIVITY</div>
+                    <h2>Recent incidents</h2>
+                    <p>Newest incident records</p>
+                </div>
+                <a class="overview-link" href="/incidents">All incidents</a>
+            </div>
+
+            @if (_recentIncidents.Count == 0)
+            {
+                <div class="overview-empty">
+                    No incidents have been recorded yet.
+                </div>
+            }
+            else
+            {
+                <div class="overview-record-list">
+                    @foreach (var incident in _recentIncidents)
+                    {
+                        <div class="overview-record">
+                            <div class="overview-record-main">
+                                <strong>@incident.Title</strong>
+                                <span>@incident.Category · @incident.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, HH:mm")</span>
+                            </div>
+                            <div class="overview-record-meta">
+                                <span class="overview-pill @PriorityCss(incident.Priority)">
+                                    @incident.Priority
+                                </span>
+                                <span class="overview-pill @IncidentStatusCss(incident.Status)">
+                                    @IncidentStatusLabel(incident.Status)
+                                </span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </article>
+    </section>
+
+    <section class="overview-footer">
+        <div>
+            <strong>Operational data</strong>
+            <p>Figures are loaded from persisted OpsPilot records when this page is opened.</p>
+        </div>
+        <span>OpsPilot · Operations workspace</span>
+    </section>
+}
+
+@code {
+    private bool _loaded;
+
+    private int _totalIncidents;
+    private int _activeIncidents;
+    private int _criticalIncidents;
+
+    private int _scheduledMaintenance;
+    private int _inProgressMaintenance;
+    private int _completedMaintenance;
+    private int _overdueMaintenance;
+
+    private List<IncidentDto> _incidentItems = [];
+    private List<IncidentDto> _recentIncidents = [];
+    private List<TechnicianDto> _technicians = [];
+    private List<MaintenanceDto> _activeMaintenanceRecords = [];
+
+    protected override async Task OnInitializedAsync()
+{
+    var incidentResult = await IncidentService.SearchAsync(
+        new IncidentSearchCriteria(PageNumber: 1, PageSize: 100));
+
+    _incidentItems = incidentResult.Items.ToList();
+    _totalIncidents = incidentResult.TotalCount;
+
+    _activeIncidents = _incidentItems.Count(x =>
+        x.Status != IncidentStatus.Resolved &&
+        x.Status != IncidentStatus.Closed);
+
+    _criticalIncidents = _incidentItems.Count(x =>
+        x.Priority == IncidentPriority.Critical &&
+        x.Status != IncidentStatus.Resolved &&
+        x.Status != IncidentStatus.Closed);
+
+    _recentIncidents = _incidentItems
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .Take(5)
+        .ToList();
+
+    _technicians = (await TechnicianDirectory
+        .GetActiveTechniciansAsync()).ToList();
+
+    var maintenance = await MaintenanceService.GetAllAsync();
+    var now = DateTimeOffset.UtcNow;
+
+    _scheduledMaintenance = maintenance.Count(x =>
+        x.Status == MaintenanceStatus.Scheduled);
+
+    _inProgressMaintenance = maintenance.Count(x =>
+        x.Status == MaintenanceStatus.InProgress);
+
+    _completedMaintenance = maintenance.Count(x =>
+        x.Status == MaintenanceStatus.Completed);
+
+    _overdueMaintenance = maintenance.Count(x =>
+        x.Status == MaintenanceStatus.Scheduled &&
+        x.ScheduledAtUtc < now);
+
+    _activeMaintenanceRecords = maintenance
+        .Where(x =>
+            x.Status == MaintenanceStatus.Scheduled ||
+            x.Status == MaintenanceStatus.InProgress)
+        .OrderBy(x => x.ScheduledAtUtc)
+        .Take(5)
+        .ToList();
+
+    _loaded = true;
+}
+
+
+
+
+    private int CountIncidents(IncidentStatus status) =>
+        _incidentItems.Count(x => x.Status == status);
+
+    private static string MaintenanceCss(MaintenanceStatus status) =>
+        status switch
+        {
+            MaintenanceStatus.Scheduled => "status-scheduled",
+            MaintenanceStatus.InProgress => "status-progress",
+            MaintenanceStatus.Completed => "status-completed",
+            MaintenanceStatus.Cancelled => "status-cancelled",
+            _ => "status-default"
+        };
+
+    private static string MaintenanceLabel(MaintenanceStatus status) =>
+        status switch
+        {
+            MaintenanceStatus.InProgress => "In progress",
+            _ => status.ToString()
+        };
+
+    private static string Initials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "?";
+
+        var parts = name.Split(
+            ' ',
+            StringSplitOptions.RemoveEmptyEntries);
+
+        return string.Concat(parts.Take(2).Select(x => char.ToUpperInvariant(x[0])));
+    }
+
+    private static string PriorityCss(IncidentPriority priority) =>
+        $"priority-{priority.ToString().ToLowerInvariant()}";
+
+    private static string IncidentStatusCss(IncidentStatus status) =>
+        $"incident-{status.ToString().ToLowerInvariant()}";
+
+    private static string IncidentStatusLabel(IncidentStatus status) =>
+        status switch
+        {
+            IncidentStatus.InProgress => "In progress",
+            _ => status.ToString()
+        };
+}

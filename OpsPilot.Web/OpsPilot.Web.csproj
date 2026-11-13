@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpsPilot.Application\OpsPilot.Application.csproj" />
+    <ProjectReference Include="..\OpsPilot.Infrastructure\OpsPilot.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>6111b496-5e19-4454-9fba-2bf81161611e</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

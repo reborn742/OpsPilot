@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] | OpsPilot</title>
+    <link rel="icon" type="image/png" href="~/favicon.png" />
+    <link rel="stylesheet" href="~/app.css" asp-append-version="true" />
+</head>
+<body class="auth-body">
+    <main class="auth-shell">
+        <a class="auth-brand" href="/">
+            <span class="brand-mark">O</span>
+            <span class="brand-copy">
+                <strong>OpsPilot</strong>
+                <small>OPERATIONS CENTER</small>
+            </span>
+        </a>
+
+        <section class="auth-card">
+            @RenderBody()
+        </section>
+
+        <p class="auth-footnote">IT asset, incident &amp; maintenance management</p>
+    </main>
+</body>
+</html>

@@ -1,0 +1,14 @@
+@page
+@model OpsPilot.Web.Pages.Account.LogoutModel
+
+@{
+    ViewData["Title"] = "Sign out";
+}
+
+<h1 class="auth-title">Sign out?</h1>
+<p class="auth-subtitle">You'll need to sign in again to access your workspace.</p>
+
+<form method="post" class="auth-actions">
+    <button type="submit" class="auth-button auth-button-danger">Sign out</button>
+    <a href="/" class="auth-button auth-button-ghost">Cancel</a>
+</form>

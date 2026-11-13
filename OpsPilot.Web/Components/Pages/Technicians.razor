@@ -1,0 +1,288 @@
+@page "/technicians"
+@attribute [Authorize(Roles = "SuperAdmin,ITManager")]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using OpsPilot.Application.DTOs.Technicians
+@using OpsPilot.Application.Interfaces
+@using OpsPilot.Infrastructure.Identity
+@inject UserManager<ApplicationUser> UserManager
+@inject ITechnicianDirectory TechnicianDirectory
+
+<PageTitle>Technician Management | OpsPilot</PageTitle>
+
+<div class="assets-page ops-page">
+    <div class="assets-heading ops-page-heading">
+        <div>
+            <div class="eyebrow">ADMINISTRATION / WORKFORCE</div>
+            <h1>Technician management</h1>
+            <p>Create and manage IT technician accounts.</p>
+        </div>
+        <button class="primary-button" @onclick="OpenForm">+ Add technician</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="asset-alert ops-alert ops-alert-info">@message</div>
+    }
+
+    <section class="ops-metrics ops-metrics-three">
+    <article class="ops-metric">
+        <span>Active technicians</span>
+        <strong>@technicians.Count</strong>
+        <small>Available in the directory</small>
+    </article>
+    <article class="ops-metric">
+        <span>Account provisioning</span>
+        <strong>Enabled</strong>
+        <small>Create technician accounts</small>
+    </article>
+    <article class="ops-metric">
+        <span>Management access</span>
+        <strong>Restricted</strong>
+        <small>SuperAdmin and ITManager</small>
+    </article>
+</section>
+
+@if (showForm)
+    {
+        <section class="inventory-panel ops-panel">
+            <div class="inventory-header">
+                <h2>Create technician account</h2>
+                <button class="secondary-button" @onclick="CloseForm">Cancel</button>
+            </div>
+
+            <EditForm Model="form" OnValidSubmit="CreateTechnicianAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="asset-form-grid">
+                    <div class="form-field">
+                        <label>Full name *</label>
+                        <InputText @bind-Value="form.FullName" />
+                        <ValidationMessage For="@(() => form.FullName)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Email *</label>
+                        <InputText @bind-Value="form.Email" />
+                        <ValidationMessage For="@(() => form.Email)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Temporary password *</label>
+                        <InputText type="password" @bind-Value="form.Password" />
+                        <ValidationMessage For="@(() => form.Password)" />
+                    </div>
+                </div>
+
+                <p>Password must be at least 12 characters, including uppercase, lowercase and a digit.</p>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-button" @onclick="CloseForm">Cancel</button>
+                    <button type="submit" class="primary-button" disabled="@isSaving">
+                        @(isSaving ? "Creating..." : "Create account")
+                    </button>
+                </div>
+            </EditForm>
+        </section>
+    }
+
+    <section class="inventory-panel ops-panel">
+        <div class="inventory-header">
+            <div>
+                <h2>Technician directory</h2>
+                <p>@technicians.Count active technician(s).</p>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="asset-empty">Loading technicians...</div>
+        }
+        else if (technicians.Count == 0)
+        {
+            <div class="asset-empty">
+                <strong>No active technicians</strong>
+                <p>Create a technician account to enable incident assignment.</p>
+            </div>
+        }
+        else
+        {
+            <div class="asset-table-wrapper ops-table-wrap">
+                <table class="asset-table ops-table">
+                    <thead>
+                        <tr>
+                            <th>NAME</th>
+                            <th>EMAIL</th>
+                            <th>ROLE</th>
+                            <th>STATUS</th>
+                            <th>ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var technician in technicians)
+                        {
+                            <tr>
+                                <td><strong>@technician.DisplayName</strong></td>
+                                <td>@technician.Email</td>
+                                <td>Technician</td>
+                                <td><span class="asset-status active">Active</span></td>
+                                <td>
+                                    <button class="secondary-button"
+                                            disabled="@isSaving"
+                                            @onclick="() => DeactivateAsync(technician.Id)">
+                                        Deactivate
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private List<TechnicianDto> technicians = [];
+    private TechnicianFormModel form = new();
+    private bool showForm;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTechniciansAsync();
+    }
+
+    private async Task LoadTechniciansAsync()
+    {
+        isLoading = true;
+
+        try
+        {
+            technicians = (await TechnicianDirectory.GetActiveTechniciansAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            message = $"Could not load technicians: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenForm()
+    {
+        form = new TechnicianFormModel();
+        message = null;
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private async Task CreateTechnicianAsync()
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+        message = null;
+
+        try
+        {
+            var user = new ApplicationUser
+            {
+                FullName = form.FullName.Trim(),
+                UserName = form.Email.Trim(),
+                Email = form.Email.Trim(),
+                IsActive = true,
+                EmailConfirmed = false
+            };
+
+            var createResult = await UserManager.CreateAsync(user, form.Password);
+
+            if (!createResult.Succeeded)
+            {
+                message = string.Join(" | ",
+                    createResult.Errors.Select(e => $"{e.Code}: {e.Description}"));
+                return;
+            }
+
+            var roleResult = await UserManager.AddToRoleAsync(
+                user, RoleNames.Technician);
+
+            if (!roleResult.Succeeded)
+            {
+                await UserManager.DeleteAsync(user);
+                message = "Role assignment failed. Account creation was rolled back. "
+                    + string.Join(" | ",
+                        roleResult.Errors.Select(e => e.Description));
+                return;
+            }
+
+            showForm = false;
+            form = new TechnicianFormModel();
+            message = "Technician account created successfully.";
+            await LoadTechniciansAsync();
+        }
+        catch (Exception ex)
+        {
+            message = $"Account creation failed: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeactivateAsync(Guid id)
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+        message = null;
+
+        try
+        {
+            var user = await UserManager.FindByIdAsync(id.ToString());
+
+            if (user is null ||
+                !await UserManager.IsInRoleAsync(user, RoleNames.Technician))
+            {
+                message = "Technician account was not found.";
+                return;
+            }
+
+            user.IsActive = false;
+            var result = await UserManager.UpdateAsync(user);
+
+            message = result.Succeeded
+                ? "Technician deactivated. New incident assignments are blocked."
+                : string.Join(" | ", result.Errors.Select(e => e.Description));
+
+            await LoadTechniciansAsync();
+        }
+        catch (Exception ex)
+        {
+            message = $"Unable to deactivate technician: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private sealed class TechnicianFormModel
+    {
+        [Required, StringLength(120)]
+        public string FullName { get; set; } = "";
+
+        [Required, EmailAddress, StringLength(256)]
+        public string Email { get; set; } = "";
+
+        [Required, MinLength(12)]
+        public string Password { get; set; } = "";
+    }
+}

@@ -1,0 +1,464 @@
+@page "/incidents"
+@attribute [Authorize]
+@using System.ComponentModel.DataAnnotations
+@using OpsPilot.Application.Common
+@using OpsPilot.Application.DTOs.Assets
+@using OpsPilot.Application.DTOs.Incidents
+@using OpsPilot.Application.Services.Assets
+@using OpsPilot.Application.Services.Incidents
+@using OpsPilot.Domain.Enums
+@inject IIncidentService IncidentService
+@inject IAssetService AssetService
+
+<PageTitle>Incident Management | OpsPilot</PageTitle>
+
+<div class="assets-page ops-page">
+    <div class="assets-heading ops-page-heading">
+        <div>
+            <div class="eyebrow">OPERATIONS / SERVICE DESK</div>
+            <h1>Incident management</h1>
+            <p>Register, search and track IT service incidents.</p>
+        </div>
+        <button class="primary-button" @onclick="OpenCreateForm">
+            + Report incident
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="asset-alert ops-alert ops-alert-error">@errorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="asset-alert ops-alert ops-alert-success">@successMessage</div>
+    }
+
+    <section class="ops-metrics">
+    <article class="ops-metric">
+        <span>Matching incidents</span>
+        <strong>@(result?.TotalCount ?? 0)</strong>
+        <small>Current filters</small>
+    </article>
+    <article class="ops-metric">
+        <span>Open on this page</span>
+        <strong>@incidents.Count(x => x.Status != IncidentStatus.Resolved && x.Status != IncidentStatus.Closed)</strong>
+        <small>Not yet closed</small>
+    </article>
+    <article class="ops-metric ops-metric-critical">
+        <span>Critical on this page</span>
+        <strong>@incidents.Count(x => x.Priority == IncidentPriority.Critical)</strong>
+        <small>Current results</small>
+    </article>
+    <article class="ops-metric">
+        <span>Current page</span>
+        <strong>@(result?.PageNumber ?? 1)</strong>
+        <small>Of @(result?.TotalPages ?? 0) pages</small>
+    </article>
+</section>
+
+@if (showCreateForm)
+    {
+        <section class="asset-form-panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>Report new incident</h2>
+                    <p>Provide the issue details and select its priority.</p>
+                </div>
+                <button class="secondary-button" @onclick="CloseCreateForm">Cancel</button>
+            </div>
+
+            <EditForm Model="form" OnValidSubmit="CreateIncidentAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="asset-form-grid">
+                    <div class="form-field">
+                        <label>Incident title *</label>
+                        <InputText @bind-Value="form.Title"
+                                   placeholder="e.g. Finance laptop cannot start" />
+                        <ValidationMessage For="@(() => form.Title)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Category *</label>
+                        <InputSelect @bind-Value="form.Category">
+                            @foreach (var category in Enum.GetValues<IncidentCategory>())
+                            {
+                                <option value="@category">@category</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-field">
+                        <label>Priority *</label>
+                        <InputSelect @bind-Value="form.Priority">
+                            @foreach (var priority in Enum.GetValues<IncidentPriority>())
+                            {
+                                <option value="@priority">@priority</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-field">
+                        <label>Related asset (optional)</label>
+                        <InputSelect @bind-Value="form.AssetId">
+                            <option value="">No related asset</option>
+                            @foreach (var item in availableAssets)
+                            {
+                                <option value="@item.Id">@item.AssetTag — @item.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-field" style="grid-column: 1 / -1">
+                        <label>Description *</label>
+                        <InputTextArea @bind-Value="form.Description"
+                                       rows="5"
+                                       placeholder="Describe the problem, symptoms and impact..." />
+                        <ValidationMessage For="@(() => form.Description)" />
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(formError))
+                {
+                    <div class="asset-alert">@formError</div>
+                }
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-button" @onclick="CloseCreateForm">
+                        Cancel
+                    </button>
+                    <button type="submit" class="primary-button" disabled="@isSaving">
+                        @(isSaving ? "Submitting..." : "Submit incident")
+                    </button>
+                </div>
+            </EditForm>
+        </section>
+    }
+
+    <section class="asset-summary">
+        <div class="asset-summary-card">
+            <span>Matching incidents</span>
+            <strong>@(result?.TotalCount ?? 0)</strong>
+        </div>
+        <div class="asset-summary-card">
+            <span>Current page</span>
+            <strong>@(result?.PageNumber ?? 1)</strong>
+        </div>
+        <div class="asset-summary-card">
+            <span>Total pages</span>
+            <strong>@(result?.TotalPages ?? 0)</strong>
+        </div>
+    </section>
+
+    <section class="inventory-panel ops-panel">
+        <div class="inventory-header">
+            <div>
+                <h2>Incident register</h2>
+                <p>Review reported incidents and their current status.</p>
+            </div>
+        </div>
+
+        <div class="asset-filters ops-toolbar">
+            <input @bind="searchTerm" @bind:event="oninput"
+                   placeholder="Search incident title or description..." />
+
+            <select @bind="categoryFilter">
+                <option value="">All categories</option>
+                @foreach (var category in Enum.GetValues<IncidentCategory>())
+                {
+                    <option value="@category">@category</option>
+                }
+            </select>
+
+            <select @bind="priorityFilter">
+                <option value="">All priorities</option>
+                @foreach (var priority in Enum.GetValues<IncidentPriority>())
+                {
+                    <option value="@priority">@priority</option>
+                }
+            </select>
+
+            <select @bind="statusFilter">
+                <option value="">All statuses</option>
+                @foreach (var status in Enum.GetValues<IncidentStatus>())
+                {
+                    <option value="@status">@FormatStatus(status)</option>
+                }
+            </select>
+
+            <button class="primary-button" @onclick="ApplyFiltersAsync">Search</button>
+            <button class="secondary-button" @onclick="ClearFiltersAsync">Clear</button>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="asset-empty">Loading incidents...</div>
+        }
+        else if (incidents.Count == 0)
+        {
+            <div class="asset-empty">
+                <strong>No incidents found</strong>
+                <p>Try changing your filters or report a new incident.</p>
+            </div>
+        }
+        else
+        {
+            <div class="asset-table-wrapper ops-table-wrap">
+                <table class="asset-table ops-table">
+                    <thead>
+                        <tr>
+                            <th>INCIDENT</th>
+                            <th>CATEGORY</th>
+                            <th>PRIORITY</th>
+                            <th>STATUS</th>
+                            <th>ASSIGNED TECHNICIAN</th>
+                            <th>REPORTED</th>
+                            <th>ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var incident in incidents)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@incident.Title</strong>
+                                    <small>@incident.Id.ToString("N")[..8].ToUpperInvariant()</small>
+                                </td>
+                                <td>@incident.Category</td>
+                                <td>
+                                    <span class="asset-status @PriorityClass(incident.Priority)">
+                                        @incident.Priority
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="asset-status @incident.Status.ToString().ToLowerInvariant()">
+                                        @FormatStatus(incident.Status)
+                                    </span>
+                                </td>
+                                <td>
+                                    @(incident.AssignedTechnicianId?.ToString("N")[..8] ?? "Unassigned")
+                                </td>
+                                <td>@incident.CreatedAtUtc.ToString("dd MMM yyyy")</td>
+                                <td>
+                                    <a class="asset-open-link" href="/incidents/@incident.Id">View details</a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="asset-pagination">
+                <span>Showing @incidents.Count of @result!.TotalCount incidents</span>
+                <div>
+                    <button class="secondary-button"
+                            disabled="@(!result.HasPreviousPage)"
+                            @onclick="PreviousPageAsync">
+                        Previous
+                    </button>
+                    <button class="secondary-button"
+                            disabled="@(!result.HasNextPage)"
+                            @onclick="NextPageAsync">
+                        Next
+                    </button>
+                </div>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private List<IncidentDto> incidents = [];
+    private List<AssetDto> availableAssets = [];
+    private PagedResult<IncidentDto>? result;
+
+    private string searchTerm = "";
+    private string categoryFilter = "";
+    private string priorityFilter = "";
+    private string statusFilter = "";
+
+    private int pageNumber = 1;
+    private const int PageSize = 20;
+
+    private bool isLoading;
+    private bool isSaving;
+    private bool showCreateForm;
+
+    private string? errorMessage;
+    private string? formError;
+    private string? successMessage;
+
+    private IncidentFormModel form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAvailableAssetsAsync();
+        await LoadIncidentsAsync();
+    }
+
+    private async Task LoadAvailableAssetsAsync()
+    {
+        try
+        {
+            var assetResult = await AssetService.SearchAsync(
+                new AssetSearchCriteria(PageSize: 100));
+
+            availableAssets = assetResult.Items
+                .Where(x => x.Status is not (AssetStatus.Retired or AssetStatus.Disposed))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load asset options: {ex.Message}";
+        }
+    }
+
+    private async Task LoadIncidentsAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            IncidentCategory? category =
+                Enum.TryParse<IncidentCategory>(categoryFilter, out var c) ? c : null;
+
+            IncidentPriority? priority =
+                Enum.TryParse<IncidentPriority>(priorityFilter, out var p) ? p : null;
+
+            IncidentStatus? status =
+                Enum.TryParse<IncidentStatus>(statusFilter, out var s) ? s : null;
+
+            result = await IncidentService.SearchAsync(
+                new IncidentSearchCriteria(
+                    SearchTerm: string.IsNullOrWhiteSpace(searchTerm) ? null : searchTerm.Trim(),
+                    Category: category,
+                    Priority: priority,
+                    Status: status,
+                    PageNumber: pageNumber,
+                    PageSize: PageSize));
+
+            incidents = result.Items.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load incidents: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenCreateForm()
+    {
+        form = new IncidentFormModel();
+        formError = null;
+        successMessage = null;
+        showCreateForm = true;
+    }
+
+    private void CloseCreateForm()
+    {
+        showCreateForm = false;
+        formError = null;
+    }
+
+    private async Task CreateIncidentAsync()
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+        formError = null;
+        successMessage = null;
+
+        try
+        {
+            Guid? assetId = Guid.TryParse(form.AssetId, out var parsedId)
+                ? parsedId : null;
+
+            await IncidentService.CreateAsync(new CreateIncidentRequest(
+                form.Title,
+                form.Description,
+                form.Category,
+                form.Priority,
+                assetId));
+
+            showCreateForm = false;
+            form = new IncidentFormModel();
+            pageNumber = 1;
+            successMessage = "Incident reported successfully.";
+
+            await LoadIncidentsAsync();
+        }
+        catch (Exception ex)
+        {
+            formError = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        pageNumber = 1;
+        await LoadIncidentsAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        searchTerm = "";
+        categoryFilter = "";
+        priorityFilter = "";
+        statusFilter = "";
+        pageNumber = 1;
+        await LoadIncidentsAsync();
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        if (result?.HasPreviousPage == true)
+        {
+            pageNumber--;
+            await LoadIncidentsAsync();
+        }
+    }
+
+    private async Task NextPageAsync()
+    {
+        if (result?.HasNextPage == true)
+        {
+            pageNumber++;
+            await LoadIncidentsAsync();
+        }
+    }
+
+    private static string FormatStatus(IncidentStatus status) =>
+        status switch
+        {
+            IncidentStatus.InProgress => "In progress",
+            _ => status.ToString()
+        };
+
+    private static string PriorityClass(IncidentPriority priority) =>
+        priority.ToString().ToLowerInvariant();
+
+    private sealed class IncidentFormModel
+    {
+        [Required, StringLength(200)]
+        public string Title { get; set; } = "";
+
+        [Required, StringLength(5000)]
+        public string Description { get; set; } = "";
+
+        public IncidentCategory Category { get; set; } = IncidentCategory.Hardware;
+        public IncidentPriority Priority { get; set; } = IncidentPriority.Medium;
+
+        public string AssetId { get; set; } = "";
+    }
+}

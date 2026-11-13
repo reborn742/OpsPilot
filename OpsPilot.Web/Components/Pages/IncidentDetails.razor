@@ -1,0 +1,361 @@
+@page "/incidents/{Id:guid}"
+@attribute [Authorize]
+@using OpsPilot.Application.DTOs.Incidents
+@using OpsPilot.Application.DTOs.Technicians
+@using OpsPilot.Application.Interfaces
+@using OpsPilot.Application.Services.Incidents
+@using OpsPilot.Domain.Enums
+@inject IIncidentService IncidentService
+@inject ITechnicianDirectory TechnicianDirectory
+
+<PageTitle>Incident Details | OpsPilot</PageTitle>
+
+<div class="assets-page">
+    <div class="assets-heading">
+        <div>
+            <div class="eyebrow">OPERATIONS / INCIDENTS</div>
+            <h1>Incident details</h1>
+            <p>Review the report and manage its lifecycle.</p>
+        </div>
+        <a class="secondary-button" href="/incidents">Back to incidents</a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="asset-alert">@errorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="asset-alert">@successMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="asset-empty">Loading incident...</div>
+    }
+    else if (incident is null)
+    {
+        <div class="asset-empty">
+            <strong>Incident not found</strong>
+            <p>This incident may have been deleted or the address may be incorrect.</p>
+        </div>
+    }
+    else
+    {
+        <section class="inventory-panel">
+            <div class="inventory-header">
+                <div>
+                    <h2>@incident.Title</h2>
+                    <p>Reference: @incident.Id</p>
+                </div>
+                <span class="asset-status @incident.Priority.ToString().ToLowerInvariant()">
+                    @incident.Priority priority
+                </span>
+            </div>
+
+            <div class="asset-form-grid">
+                <div class="form-field">
+                    <label>Category</label>
+                    <strong>@incident.Category</strong>
+                </div>
+                <div class="form-field">
+                    <label>Status</label>
+                    <strong>@FormatStatus(incident.Status)</strong>
+                </div>
+                <div class="form-field">
+                    <label>Reported</label>
+                    <strong>@incident.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")</strong>
+                </div>
+                <div class="form-field">
+                    <label>Assigned technician</label>
+                    <strong>@GetAssignedTechnicianName()</strong>
+                </div>
+                <div class="form-field">
+                    <label>Related asset</label>
+                    @if (incident.AssetId.HasValue)
+                    {
+                        <a href="@($"/assets/{incident.AssetId}")">View linked asset</a>
+                    }
+                    else
+                    {
+                        <strong>None</strong>
+                    }
+                </div>
+                <div class="form-field">
+                    <label>Resolved</label>
+                    <strong>@(incident.ResolvedAtUtc?.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt") ?? "Not resolved")</strong>
+                </div>
+                <div class="form-field" style="grid-column: 1 / -1">
+                    <label>Description</label>
+                    <p>@incident.Description</p>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(incident.ResolutionNotes))
+                {
+                    <div class="form-field" style="grid-column: 1 / -1">
+                        <label>Resolution notes</label>
+                        <p>@incident.ResolutionNotes</p>
+                    </div>
+                }
+            </div>
+        </section>
+
+        @if (CanAssign)
+        {
+            <section class="inventory-panel">
+                <div class="inventory-header">
+                    <div>
+                        <h2>Technician assignment</h2>
+                        <p>Only active users with the Technician role are listed.</p>
+                    </div>
+                </div>
+
+                @if (technicians.Count == 0)
+                {
+                    <div class="asset-alert">
+                        No active technicians found. Create or activate a technician account first.
+                    </div>
+                }
+                else
+                {
+                    <div class="form-field">
+                        <label for="technician-select">Select technician</label>
+                        <select id="technician-select"
+                                class="form-control"
+                                @bind="selectedTechnicianId">
+                            <option value="">Select a technician</option>
+                            @foreach (var technician in technicians)
+                            {
+                                <option value="@technician.Id">@technician.DisplayName (@technician.Email)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="primary-button"
+                                disabled="@(isSaving || !selectedTechnicianId.HasValue)"
+                                @onclick="AssignTechnicianAsync">
+                            Assign technician
+                        </button>
+                    </div>
+                }
+            </section>
+        }
+
+        <section class="inventory-panel">
+            <div class="inventory-header">
+                <div>
+                    <h2>Lifecycle actions</h2>
+                    <p>Only valid actions for the current status are available.</p>
+                </div>
+            </div>
+
+            @if (incident.Status == IncidentStatus.Open)
+            {
+                <div class="asset-alert">
+                    Assign a technician before starting work.
+                </div>
+            }
+            else if (incident.Status == IncidentStatus.Assigned)
+            {
+                <button class="primary-button" disabled="@isSaving" @onclick="StartWorkAsync">
+                    Start work
+                </button>
+            }
+            else if (incident.Status == IncidentStatus.InProgress)
+            {
+                <div class="form-field">
+                    <label>Resolution notes</label>
+                    <textarea @bind="resolutionNotes" rows="4"
+                              placeholder="Describe the fix, actions taken and outcome..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button class="secondary-button" disabled="@isSaving" @onclick="PutOnHoldAsync">
+                        Put on hold
+                    </button>
+                    <button class="primary-button" disabled="@isSaving" @onclick="ResolveAsync">
+                        Resolve incident
+                    </button>
+                </div>
+            }
+            else if (incident.Status == IncidentStatus.Pending)
+            {
+                <button class="primary-button" disabled="@isSaving" @onclick="ResumeWorkAsync">
+                    Resume work
+                </button>
+            }
+            else if (incident.Status == IncidentStatus.Resolved)
+            {
+                <div class="form-actions">
+                    <button class="primary-button" disabled="@isSaving" @onclick="CloseAsync">
+                        Close incident
+                    </button>
+                    <button class="secondary-button" disabled="@isSaving" @onclick="ReopenAsync">
+                        Reopen
+                    </button>
+                </div>
+            }
+            else if (incident.Status == IncidentStatus.Closed)
+            {
+                <button class="secondary-button" disabled="@isSaving" @onclick="ReopenAsync">
+                    Reopen incident
+                </button>
+            }
+
+            @if (isSaving)
+            {
+                <p>Saving change...</p>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private IncidentDto? incident;
+    private IReadOnlyList<TechnicianDto> technicians = [];
+    private Guid? selectedTechnicianId;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string resolutionNotes = "";
+    private string? errorMessage;
+    private string? successMessage;
+
+    private bool CanAssign =>
+        incident is not null &&
+        (incident.Status == IncidentStatus.Open ||
+         incident.Status == IncidentStatus.Assigned ||
+         incident.Status == IncidentStatus.InProgress);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadIncidentAsync();
+    }
+
+    private async Task LoadIncidentAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            incident = await IncidentService.GetByIdAsync(Id);
+
+            if (incident is not null)
+            {
+                selectedTechnicianId = incident.AssignedTechnicianId;
+
+                try
+                {
+                    technicians = await TechnicianDirectory.GetActiveTechniciansAsync();
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"Unable to load technician directory: {ex.Message}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load incident: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string GetAssignedTechnicianName()
+    {
+        var assignedId = incident?.AssignedTechnicianId;
+
+        if (!assignedId.HasValue)
+            return "Unassigned";
+
+        var technician = technicians.FirstOrDefault(
+            t => t.Id == assignedId.Value);
+
+        return technician?.DisplayName ?? "Assigned technician";
+    }
+
+    private Task AssignTechnicianAsync()
+    {
+        if (!selectedTechnicianId.HasValue)
+        {
+            errorMessage = "Select a technician first.";
+            return Task.CompletedTask;
+        }
+
+        return RunActionAsync(
+            () => IncidentService.AssignAsync(Id, selectedTechnicianId.Value),
+            "Technician assigned successfully.");
+    }
+
+    private Task StartWorkAsync() =>
+        RunActionAsync(() => IncidentService.StartWorkAsync(Id), "Work started.");
+
+    private Task PutOnHoldAsync() =>
+        RunActionAsync(() => IncidentService.PutOnHoldAsync(Id), "Incident put on hold.");
+
+    private Task ResumeWorkAsync() =>
+        RunActionAsync(() => IncidentService.ResumeWorkAsync(Id), "Work resumed.");
+
+    private async Task ResolveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(resolutionNotes))
+        {
+            errorMessage = "Resolution notes are required.";
+            return;
+        }
+
+        await RunActionAsync(
+            () => IncidentService.ResolveAsync(Id, resolutionNotes),
+            "Incident resolved.");
+
+        if (incident?.Status == IncidentStatus.Resolved)
+            resolutionNotes = "";
+    }
+
+    private Task CloseAsync() =>
+        RunActionAsync(() => IncidentService.CloseAsync(Id), "Incident closed.");
+
+    private Task ReopenAsync() =>
+        RunActionAsync(() => IncidentService.ReopenAsync(Id), "Incident reopened.");
+
+    private async Task RunActionAsync(
+        Func<Task<IncidentDto>> action,
+        string success)
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            incident = await action();
+            selectedTechnicianId = incident.AssignedTechnicianId;
+            successMessage = success;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string FormatStatus(IncidentStatus status) =>
+        status switch
+        {
+            IncidentStatus.InProgress => "In progress",
+            _ => status.ToString()
+        };
+}

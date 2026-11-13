@@ -1,0 +1,424 @@
+@page "/assets"
+@attribute [Authorize]
+@using System.ComponentModel.DataAnnotations
+@using OpsPilot.Application.Common
+@using OpsPilot.Application.DTOs.Assets
+@using OpsPilot.Application.Services.Assets
+@using OpsPilot.Domain.Enums
+@inject IAssetService AssetService
+
+<PageTitle>Asset Management | OpsPilot</PageTitle>
+
+<div class="assets-page">
+    <div class="assets-heading">
+        <div>
+            <div class="eyebrow">OPERATIONS / INVENTORY</div>
+            <h1>Asset management</h1>
+            <p>Track, search and manage your organization's IT assets.</p>
+        </div>
+        <button class="primary-button" @onclick="OpenCreateForm">
+            + Add asset
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="asset-alert">@errorMessage</div>
+    }
+
+    @if (showCreateForm)
+    {
+        <section class="asset-form-panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>Register new asset</h2>
+                    <p>Enter the asset's identification and purchase details.</p>
+                </div>
+                <button class="secondary-button" @onclick="CloseCreateForm">Cancel</button>
+            </div>
+
+            <EditForm Model="form" OnValidSubmit="CreateAssetAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="asset-form-grid">
+                    <div class="form-field">
+                        <label>Asset tag *</label>
+                        <InputText @bind-Value="form.AssetTag" placeholder="e.g. IT-LAP-001" />
+                        <ValidationMessage For="@(() => form.AssetTag)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Asset name *</label>
+                        <InputText @bind-Value="form.Name" placeholder="e.g. Finance Laptop" />
+                        <ValidationMessage For="@(() => form.Name)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Category *</label>
+                        <InputSelect @bind-Value="form.Category">
+                            @foreach (var category in Enum.GetValues<AssetCategory>())
+                            {
+                                <option value="@category">@FormatCategory(category)</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-field">
+                        <label>Manufacturer</label>
+                        <InputText @bind-Value="form.Manufacturer" placeholder="e.g. Dell" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Model</label>
+                        <InputText @bind-Value="form.Model" placeholder="Model name" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Serial number</label>
+                        <InputText @bind-Value="form.SerialNumber" placeholder="Serial number" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Purchase date</label>
+                        <InputDate @bind-Value="form.PurchaseDate" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Warranty expiry</label>
+                        <InputDate @bind-Value="form.WarrantyExpiryDate" />
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(formError))
+                {
+                    <div class="asset-alert">@formError</div>
+                }
+
+                <div class="form-actions">
+                    <button type="button" class="secondary-button" @onclick="CloseCreateForm">
+                        Cancel
+                    </button>
+                    <button type="submit" class="primary-button" disabled="@isSaving">
+                        @(isSaving ? "Saving..." : "Save asset")
+                    </button>
+                </div>
+            </EditForm>
+        </section>
+    }
+
+    <section class="asset-summary">
+        <div class="asset-summary-card">
+            <span>Total matching assets</span>
+            <strong>@(result?.TotalCount ?? 0)</strong>
+        </div>
+        <div class="asset-summary-card">
+            <span>Current page</span>
+            <strong>@(result?.PageNumber ?? 1)</strong>
+        </div>
+        <div class="asset-summary-card">
+            <span>Total pages</span>
+            <strong>@(result?.TotalPages ?? 0)</strong>
+        </div>
+    </section>
+
+    <section class="inventory-panel">
+        <div class="inventory-header">
+            <div>
+                <h2>Asset inventory</h2>
+                <p>Search and filter registered equipment.</p>
+            </div>
+        </div>
+
+        <div class="asset-filters">
+            <input @bind="searchTerm" @bind:event="oninput"
+                   placeholder="Search tag, name or serial number..." />
+
+            <select @bind="categoryFilter">
+                <option value="">All categories</option>
+                @foreach (var category in Enum.GetValues<AssetCategory>())
+                {
+                    <option value="@category">@FormatCategory(category)</option>
+                }
+            </select>
+
+            <select @bind="statusFilter">
+                <option value="">All statuses</option>
+                @foreach (var status in Enum.GetValues<AssetStatus>())
+                {
+                    <option value="@status">@FormatStatus(status)</option>
+                }
+            </select>
+
+            <button class="primary-button" @onclick="ApplyFiltersAsync">Search</button>
+            <button class="secondary-button" @onclick="ClearFiltersAsync">Clear</button>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="asset-empty">Loading asset inventory...</div>
+        }
+        else if (assets.Count == 0)
+        {
+            <div class="asset-empty">
+                <strong>No assets found</strong>
+                <p>Try changing your filters or register a new asset.</p>
+            </div>
+        }
+        else
+        {
+            <div class="asset-table-wrapper">
+                <table class="asset-table">
+                    <thead>
+                        <tr>
+                            <th>ASSET</th>
+                            <th>CATEGORY</th>
+                            <th>MANUFACTURER / MODEL</th>
+                            <th>STATUS</th>
+                            <th>CONDITION</th>
+                            <th>WARRANTY</th>
+                            <th>ACTIONS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var asset in assets)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@asset.Name</strong>
+                                    <small>@asset.AssetTag</small>
+                                </td>
+                                <td>@FormatCategory(asset.Category)</td>
+                                <td>
+                                    @(asset.Manufacturer ?? "—")
+                                    <small>@(asset.Model ?? "No model specified")</small>
+                                </td>
+                                <td>
+                                    <span class="asset-status @StatusClass(asset.Status)">
+                                        @FormatStatus(asset.Status)
+                                    </span>
+                                </td>
+                                <td>@asset.Condition</td>
+                                <td>
+                                    @(asset.WarrantyExpiryDate?.ToString("dd MMM yyyy") ?? "—")
+                                </td>
+                                <td>
+                                    <a class="asset-open-link" href="/assets/@asset.Id">View details</a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="asset-pagination">
+                <span>
+                    Showing @assets.Count of @result!.TotalCount assets
+                </span>
+                <div>
+                    <button class="secondary-button"
+                            disabled="@(!result.HasPreviousPage)"
+                            @onclick="PreviousPageAsync">
+                        Previous
+                    </button>
+                    <button class="secondary-button"
+                            disabled="@(!result.HasNextPage)"
+                            @onclick="NextPageAsync">
+                        Next
+                    </button>
+                </div>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private List<AssetDto> assets = [];
+    private PagedResult<AssetDto>? result;
+
+    private string searchTerm = "";
+    private string categoryFilter = "";
+    private string statusFilter = "";
+
+    private int pageNumber = 1;
+    private const int PageSize = 20;
+
+    private bool isLoading;
+    private bool isSaving;
+    private bool showCreateForm;
+
+    private string? errorMessage;
+    private string? formError;
+
+    private AssetFormModel form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAssetsAsync();
+    }
+
+    private async Task LoadAssetsAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            AssetCategory? category = Enum.TryParse<AssetCategory>(
+                categoryFilter, out var parsedCategory)
+                ? parsedCategory : null;
+
+            AssetStatus? status = Enum.TryParse<AssetStatus>(
+                statusFilter, out var parsedStatus)
+                ? parsedStatus : null;
+
+            result = await AssetService.SearchAsync(
+                new AssetSearchCriteria(
+                    SearchTerm: string.IsNullOrWhiteSpace(searchTerm)
+                        ? null : searchTerm.Trim(),
+                    Category: category,
+                    Status: status,
+                    PageNumber: pageNumber,
+                    PageSize: PageSize));
+
+            assets = result.Items.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load assets: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        pageNumber = 1;
+        await LoadAssetsAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        searchTerm = "";
+        categoryFilter = "";
+        statusFilter = "";
+        pageNumber = 1;
+        await LoadAssetsAsync();
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        if (result?.HasPreviousPage == true)
+        {
+            pageNumber--;
+            await LoadAssetsAsync();
+        }
+    }
+
+    private async Task NextPageAsync()
+    {
+        if (result?.HasNextPage == true)
+        {
+            pageNumber++;
+            await LoadAssetsAsync();
+        }
+    }
+
+    private void OpenCreateForm()
+    {
+        form = new AssetFormModel();
+        formError = null;
+        showCreateForm = true;
+    }
+
+    private void CloseCreateForm()
+    {
+        showCreateForm = false;
+        formError = null;
+    }
+
+    private async Task CreateAssetAsync()
+    {
+        isSaving = true;
+        formError = null;
+
+        try
+        {
+            DateOnly? purchaseDate = form.PurchaseDate.HasValue
+                ? DateOnly.FromDateTime(form.PurchaseDate.Value)
+                : null;
+
+            DateOnly? warrantyDate = form.WarrantyExpiryDate.HasValue
+                ? DateOnly.FromDateTime(form.WarrantyExpiryDate.Value)
+                : null;
+
+            await AssetService.CreateAsync(new CreateAssetRequest(
+                form.AssetTag,
+                form.Name,
+                form.Category,
+                form.Manufacturer,
+                form.Model,
+                form.SerialNumber,
+                purchaseDate,
+                warrantyDate));
+
+            showCreateForm = false;
+            form = new AssetFormModel();
+            pageNumber = 1;
+
+            await LoadAssetsAsync();
+        }
+        catch (Exception ex)
+        {
+            formError = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string FormatCategory(AssetCategory category) =>
+        category switch
+        {
+            AssetCategory.NetworkDevice => "Network device",
+            AssetCategory.MobileDevice => "Mobile device",
+            _ => category.ToString()
+        };
+
+    private static string FormatStatus(AssetStatus status) =>
+        status switch
+        {
+            AssetStatus.InRepair => "In repair",
+            _ => status.ToString()
+        };
+
+    private static string StatusClass(AssetStatus status) =>
+        status.ToString().ToLowerInvariant();
+
+    private sealed class AssetFormModel
+    {
+        [Required, StringLength(50)]
+        public string AssetTag { get; set; } = "";
+
+        [Required, StringLength(150)]
+        public string Name { get; set; } = "";
+
+        public AssetCategory Category { get; set; } = AssetCategory.Laptop;
+
+        [StringLength(100)]
+        public string? Manufacturer { get; set; }
+
+        [StringLength(100)]
+        public string? Model { get; set; }
+
+        [StringLength(100)]
+        public string? SerialNumber { get; set; }
+
+        public DateTime? PurchaseDate { get; set; }
+
+        public DateTime? WarrantyExpiryDate { get; set; }
+    }
+}

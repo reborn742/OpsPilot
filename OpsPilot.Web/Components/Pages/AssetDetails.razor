@@ -1,0 +1,257 @@
+﻿@page "/assets/{Id:guid}"
+@attribute [Authorize]
+@using OpsPilot.Application.DTOs.Assets
+@using OpsPilot.Application.Services.Assets
+@using OpsPilot.Domain.Enums
+@inject IAssetService AssetService
+
+<PageTitle>Asset Details | OpsPilot</PageTitle>
+
+<div class="assets-page">
+    <div class="assets-heading">
+        <div>
+            <div class="eyebrow">OPERATIONS / INVENTORY / DETAILS</div>
+            <h1>Asset details</h1>
+            <p>View and manage this registered asset.</p>
+        </div>
+        <a class="secondary-button" href="/assets">Back to inventory</a>
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Loading asset details...</p>
+    }
+    else if (asset is null)
+    {
+        <div class="asset-alert">
+            @(errorMessage ?? "Asset not found.")
+        </div>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(successMessage))
+        {
+            <div class="asset-alert">@successMessage</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="asset-alert">@errorMessage</div>
+        }
+
+        <section class="inventory-panel">
+            <h2>@asset.Name</h2>
+
+            <div class="asset-form-grid">
+                <div><strong>Asset tag</strong><p>@asset.AssetTag</p></div>
+                <div><strong>Category</strong><p>@asset.Category</p></div>
+                <div><strong>Manufacturer</strong><p>@(asset.Manufacturer ?? "—")</p></div>
+                <div><strong>Model</strong><p>@(asset.Model ?? "—")</p></div>
+                <div><strong>Serial number</strong><p>@(asset.SerialNumber ?? "—")</p></div>
+                <div><strong>Status</strong><p>@asset.Status</p></div>
+                <div><strong>Condition</strong><p>@asset.Condition</p></div>
+                <div><strong>Assigned user ID</strong><p>@(asset.AssignedToUserId?.ToString() ?? "Not assigned")</p></div>
+                <div><strong>Purchase date</strong><p>@(asset.PurchaseDate?.ToString("dd MMM yyyy") ?? "—")</p></div>
+                <div><strong>Warranty expiry</strong><p>@(asset.WarrantyExpiryDate?.ToString("dd MMM yyyy") ?? "—")</p></div>
+                <div><strong>Registered</strong><p>@asset.CreatedAtUtc.ToString("dd MMM yyyy HH:mm 'UTC'")</p></div>
+            </div>
+        </section>
+
+        <section class="inventory-panel">
+            <h2>Update condition</h2>
+
+            <div class="asset-filters">
+                <select @bind="selectedCondition">
+                    @foreach (var condition in Enum.GetValues<AssetCondition>())
+                    {
+                        <option value="@condition">@condition</option>
+                    }
+                </select>
+
+                <button class="primary-button"
+                        disabled="@isSaving"
+                        @onclick="UpdateConditionAsync">
+                    Update condition
+                </button>
+            </div>
+        </section>
+
+        <section class="inventory-panel">
+            <h2>Asset lifecycle</h2>
+
+            <div class="asset-filters">
+                @if (asset.Status == AssetStatus.Active)
+                {
+                    <button class="secondary-button"
+                            disabled="@isSaving"
+                            @onclick="MarkForRepairAsync">
+                        Mark for repair
+                    </button>
+                }
+
+                @if (asset.Status == AssetStatus.InRepair)
+                {
+                    <button class="primary-button"
+                            disabled="@isSaving"
+                            @onclick="MarkActiveAsync">
+                        Mark active
+                    </button>
+                }
+
+                @if (asset.Status is not (AssetStatus.Retired or AssetStatus.Disposed))
+                {
+                    <button class="secondary-button"
+                            disabled="@isSaving"
+                            @onclick='() => RequestConfirmation("retire")'>
+                        Retire asset
+                    </button>
+
+                    <button class="secondary-button"
+                            disabled="@isSaving"
+                            @onclick='() => RequestConfirmation("dispose")'>
+                        Dispose asset
+                    </button>
+                }
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(pendingAction))
+            {
+                <div class="asset-alert">
+                    Confirm that you want to @(pendingAction) this asset?
+                    <div class="form-actions">
+                        <button class="primary-button"
+                                disabled="@isSaving"
+                                @onclick="ConfirmActionAsync">
+                            Confirm
+                        </button>
+                        <button class="secondary-button"
+                                disabled="@isSaving"
+                                @onclick="CancelConfirmation">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private AssetDto? asset;
+    private AssetCondition selectedCondition = AssetCondition.Good;
+
+    private bool isLoading = true;
+    private bool isSaving;
+
+    private string? errorMessage;
+    private string? successMessage;
+    private string? pendingAction;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAssetAsync();
+    }
+
+    private async Task LoadAssetAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            asset = await AssetService.GetByIdAsync(Id);
+
+            if (asset is not null)
+                selectedCondition = asset.Condition;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load asset: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task UpdateConditionAsync()
+    {
+        await ExecuteActionAsync(
+            () => AssetService.UpdateConditionAsync(Id, selectedCondition),
+            "Asset condition updated.");
+    }
+
+    private async Task MarkForRepairAsync()
+    {
+        await ExecuteActionAsync(
+            () => AssetService.MarkForRepairAsync(Id),
+            "Asset marked for repair.");
+    }
+
+    private async Task MarkActiveAsync()
+    {
+        await ExecuteActionAsync(
+            () => AssetService.MarkActiveAsync(Id),
+            "Asset marked active.");
+    }
+
+    private void RequestConfirmation(string action)
+    {
+        pendingAction = action;
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private void CancelConfirmation()
+    {
+        pendingAction = null;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (pendingAction == "retire")
+        {
+            await ExecuteActionAsync(
+                () => AssetService.RetireAsync(Id),
+                "Asset retired.");
+        }
+        else if (pendingAction == "dispose")
+        {
+            await ExecuteActionAsync(
+                () => AssetService.DisposeAsync(Id),
+                "Asset disposed.");
+        }
+
+        pendingAction = null;
+    }
+
+    private async Task ExecuteActionAsync(
+        Func<Task<AssetDto>> action,
+        string message)
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            asset = await action();
+            selectedCondition = asset.Condition;
+            successMessage = message;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

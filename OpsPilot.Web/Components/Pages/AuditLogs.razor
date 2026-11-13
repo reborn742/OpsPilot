@@ -1,0 +1,218 @@
+﻿@page "/audit-logs"
+@attribute [Authorize(Roles = "SuperAdmin,ITManager")]
+@using OpsPilot.Application.Common
+@using OpsPilot.Application.DTOs.Audit
+@using OpsPilot.Application.Interfaces
+@inject IAuditLogQueryService AuditQuery
+
+<PageTitle>Audit Logs | OpsPilot</PageTitle>
+
+<div class="assets-page">
+    <div class="assets-heading">
+        <div>
+            <div class="eyebrow">GOVERNANCE / ACTIVITY HISTORY</div>
+            <h1>Audit logs</h1>
+            <p>Review recorded changes and actions across OpsPilot.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="asset-alert">@errorMessage</div>
+    }
+
+    <section class="asset-summary">
+        <div class="asset-summary-card">
+            <span>Matching records</span>
+            <strong>@(result?.TotalCount ?? 0)</strong>
+        </div>
+        <div class="asset-summary-card">
+            <span>Current page</span>
+            <strong>@(result?.PageNumber ?? 1)</strong>
+        </div>
+        <div class="asset-summary-card">
+            <span>Total pages</span>
+            <strong>@(result?.TotalPages ?? 0)</strong>
+        </div>
+    </section>
+
+    <section class="inventory-panel">
+        <div class="inventory-header">
+            <div>
+                <h2>Activity register</h2>
+                <p>Records are read-only and ordered newest first.</p>
+            </div>
+        </div>
+
+        <div class="asset-filters">
+            <input @bind="searchTerm" @bind:event="oninput"
+                   placeholder="Search actor, entity ID or details..." />
+
+            <select @bind="entityTypeFilter">
+                <option value="">All entity types</option>
+                <option value="Incident">Incident</option>
+                <option value="Asset">Asset</option>
+            </select>
+
+            <input @bind="actionFilter"
+                   placeholder="Action (e.g. Created)" />
+
+            <button class="primary-button" @onclick="ApplyFiltersAsync">
+                Search
+            </button>
+            <button class="secondary-button" @onclick="ClearFiltersAsync">
+                Clear
+            </button>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="asset-empty">Loading audit records...</div>
+        }
+        else if (logs.Count == 0)
+        {
+            <div class="asset-empty">
+                <strong>No audit records found</strong>
+                <p>Records will appear here when tracked operations are performed.</p>
+            </div>
+        }
+        else
+        {
+            <div class="asset-table-wrapper">
+                <table class="asset-table">
+                    <thead>
+                        <tr>
+                            <th>TIME (UTC)</th>
+                            <th>ACTOR</th>
+                            <th>ACTION</th>
+                            <th>ENTITY</th>
+                            <th>ENTITY ID</th>
+                            <th>DETAILS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in logs)
+                        {
+                            <tr>
+                                <td>@log.OccurredAtUtc.ToString("dd MMM yyyy HH:mm:ss")</td>
+                                <td>
+                                    <strong>@log.ActorDisplayName</strong>
+                                    <small>@(log.ActorUserId?.ToString() ?? "No user ID")</small>
+                                </td>
+                                <td>
+                                    <span class="asset-status">@log.Action</span>
+                                </td>
+                                <td>@log.EntityType</td>
+                                <td>
+                                    <small>@log.EntityId</small>
+                                </td>
+                                <td>@(log.Details ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="asset-pagination">
+                <span>Showing @logs.Count of @result!.TotalCount records</span>
+                <div>
+                    <button class="secondary-button"
+                            disabled="@(!result.HasPreviousPage)"
+                            @onclick="PreviousPageAsync">
+                        Previous
+                    </button>
+                    <button class="secondary-button"
+                            disabled="@(!result.HasNextPage)"
+                            @onclick="NextPageAsync">
+                        Next
+                    </button>
+                </div>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private List<AuditLogDto> logs = [];
+    private PagedResult<AuditLogDto>? result;
+
+    private string searchTerm = "";
+    private string entityTypeFilter = "";
+    private string actionFilter = "";
+
+    private int pageNumber = 1;
+    private const int PageSize = 20;
+
+    private bool isLoading;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLogsAsync();
+    }
+
+    private async Task LoadLogsAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await AuditQuery.SearchAsync(
+                new AuditLogSearchCriteria
+                {
+                    SearchTerm = string.IsNullOrWhiteSpace(searchTerm)
+                        ? null : searchTerm.Trim(),
+                    EntityType = string.IsNullOrWhiteSpace(entityTypeFilter)
+                        ? null : entityTypeFilter.Trim(),
+                    Action = string.IsNullOrWhiteSpace(actionFilter)
+                        ? null : actionFilter.Trim(),
+                    PageNumber = pageNumber,
+                    PageSize = PageSize
+                });
+
+            logs = result.Items.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load audit logs: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        pageNumber = 1;
+        await LoadLogsAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        searchTerm = "";
+        entityTypeFilter = "";
+        actionFilter = "";
+        pageNumber = 1;
+        await LoadLogsAsync();
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        if (result?.HasPreviousPage == true)
+        {
+            pageNumber--;
+            await LoadLogsAsync();
+        }
+    }
+
+    private async Task NextPageAsync()
+    {
+        if (result?.HasNextPage == true)
+        {
+            pageNumber++;
+            await LoadLogsAsync();
+        }
+    }
+}
